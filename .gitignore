@@ -1,0 +1,80 @@
+# 编译产物
+*.o
+*.obj
+*.exe
+*.out
+*.app
+
+# CUDA 编译产物
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
+
+# 教程编译出的可执行文件（无扩展名）
+hello_cuda
+kernel_basics
+memory_management
+vector_add
+05_shared_memory
+06_sync_atomic
+07_cuda_streams
+08_unified_memory
+09_texture_memory
+10_constant_reduction
+11_matrix_multiply
+12_profiling_debug
+13_dynamic_parallelism
+14_multi_gpu
+15_thrust_practical
+16_cudnn_deeplearning
+17_cufft
+18_cusparse
+19_curand
+20_cuda_graphs
+21_interop_graphics
+22_memory_pools
+23_cooperative_groups_advanced
+24_optimization_workshop
+25_deep_learning_integration
+26_ptx_inline_assembly
+27_warp_matrix_tensor_cores
+28_async_copy_pipeline
+29_debugging_best_practices
+30_image_processing_project
+31_neural_network_inference
+32_realtime_video_processing
+32_realtime
+33_scientific_computing
+33_scientific
+34_jetson_embedded
+35_hpc_future
+
+# CMake 构建目录
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Nsight 性能分析文件
+*.qdrep
+*.nsys-rep
+*.ncu-rep
+*.nvvp
+*.sqlite
+
+# 编辑器和 IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 调试文件
+core
+core.*
