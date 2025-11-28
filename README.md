@@ -4,6 +4,8 @@
 
 ## 快速开始
 
+### 方式一：直接编译（适合学习单个教程）
+
 ```bash
 # 编译第一个程序
 nvcc hello_cuda.cu -o hello_cuda
@@ -12,11 +14,44 @@ nvcc hello_cuda.cu -o hello_cuda
 ./hello_cuda
 ```
 
+### 方式二：CMake 构建（推荐）
+
+```bash
+# 创建构建目录
+mkdir build && cd build
+
+# 配置（自动检测 GPU 架构）
+cmake ..
+
+# 编译全部教程
+make -j$(nproc)
+
+# 或编译单个教程
+make hello_cuda
+
+# 运行（可执行文件在 bin 目录）
+./bin/hello_cuda
+```
+
+**按章节编译：**
+
+```bash
+make basics          # 基础篇 (01-04)
+make advanced        # 进阶篇 (05-10)
+make practical       # 实战篇 (11-15)
+make libraries       # 库应用篇 (16-20)
+make high_level      # 高级篇 (21-25)
+make special_topics  # 专题篇 (26-30)
+make frontier        # 前沿应用篇 (31-35)
+make all_tutorials   # 全部教程
+```
+
 ## 环境要求
 
 - NVIDIA GPU（计算能力 3.0+）
 - CUDA Toolkit 10.0+
 - GCC/G++ 编译器
+- CMake 3.18+（使用 CMake 构建时需要）
 
 验证环境：
 ```bash

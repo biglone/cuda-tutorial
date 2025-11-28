@@ -29,6 +29,38 @@
     } \
 }
 
+// CUDA 13+ 兼容性：cudaMemPrefetchAsync 和 cudaMemAdvise API 变化
+// CUDA 13 使用 cudaMemLocation 结构体替代简单的设备 ID
+#if CUDART_VERSION >= 13000
+// Prefetch 兼容函数
+inline cudaError_t prefetchToDevice(const void* ptr, size_t size, int device, cudaStream_t stream = 0) {
+    cudaMemLocation location;
+    location.type = cudaMemLocationTypeDevice;
+    location.id = device;
+    return cudaMemPrefetchAsync(ptr, size, location, 0, stream);
+}
+inline cudaError_t prefetchToHost(const void* ptr, size_t size, cudaStream_t stream = 0) {
+    cudaMemLocation location;
+    location.type = cudaMemLocationTypeHost;
+    location.id = 0;
+    return cudaMemPrefetchAsync(ptr, size, location, 0, stream);
+}
+// MemAdvise 兼容函数
+inline cudaError_t memAdviseDevice(const void* ptr, size_t size, cudaMemoryAdvise advice, int device) {
+    cudaMemLocation location;
+    location.type = cudaMemLocationTypeDevice;
+    location.id = device;
+    return cudaMemAdvise(ptr, size, advice, location);
+}
+#define PREFETCH_TO_DEVICE(ptr, size, device, stream) prefetchToDevice(ptr, size, device, stream)
+#define PREFETCH_TO_HOST(ptr, size, stream) prefetchToHost(ptr, size, stream)
+#define MEM_ADVISE_DEVICE(ptr, size, advice, device) memAdviseDevice(ptr, size, advice, device)
+#else
+#define PREFETCH_TO_DEVICE(ptr, size, device, stream) cudaMemPrefetchAsync(ptr, size, device, stream)
+#define PREFETCH_TO_HOST(ptr, size, stream) cudaMemPrefetchAsync(ptr, size, cudaCpuDeviceId, stream)
+#define MEM_ADVISE_DEVICE(ptr, size, advice, device) cudaMemAdvise(ptr, size, advice, device)
+#endif
+
 // ============================================================================
 // 核函数：向量加法
 // ============================================================================
@@ -215,9 +247,9 @@ void demoPrefetch() {
     CHECK_CUDA(cudaEventRecord(start));
 
     // 预取数据到 GPU
-    CHECK_CUDA(cudaMemPrefetchAsync(a, size, device, 0));
-    CHECK_CUDA(cudaMemPrefetchAsync(b, size, device, 0));
-    CHECK_CUDA(cudaMemPrefetchAsync(c, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(a, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(b, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(c, size, device, 0));
 
     vectorAdd<<<gridSize, blockSize>>>(a, b, c, N);
     CHECK_CUDA(cudaDeviceSynchronize());
@@ -280,27 +312,27 @@ void demoMemAdvise() {
     // 1. 设置首选位置
     printf("1. cudaMemAdviseSetPreferredLocation\n");
     printf("   设置数据的首选存放位置\n");
-    CHECK_CUDA(cudaMemAdvise(readOnlyData, size,
+    CHECK_CUDA(MEM_ADVISE_DEVICE(readOnlyData, size,
         cudaMemAdviseSetPreferredLocation, device));
     printf("   -> readOnlyData 首选位置设为 GPU\n\n");
 
     // 2. 设置只读
     printf("2. cudaMemAdviseSetReadMostly\n");
     printf("   标记数据为只读，允许创建副本提高访问效率\n");
-    CHECK_CUDA(cudaMemAdvise(readOnlyData, size,
+    CHECK_CUDA(MEM_ADVISE_DEVICE(readOnlyData, size,
         cudaMemAdviseSetReadMostly, device));
     printf("   -> readOnlyData 标记为只读\n\n");
 
     // 3. 设置访问者
     printf("3. cudaMemAdviseSetAccessedBy\n");
     printf("   提示哪个处理器会访问该数据\n");
-    CHECK_CUDA(cudaMemAdvise(writeData, size,
+    CHECK_CUDA(MEM_ADVISE_DEVICE(writeData, size,
         cudaMemAdviseSetAccessedBy, device));
     printf("   -> writeData 将被 GPU 访问\n\n");
 
     // 预取并执行
-    CHECK_CUDA(cudaMemPrefetchAsync(readOnlyData, size, device, 0));
-    CHECK_CUDA(cudaMemPrefetchAsync(writeData, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(readOnlyData, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(writeData, size, device, 0));
 
     int blockSize = 256;
     int gridSize = (N + blockSize - 1) / blockSize;
@@ -309,7 +341,7 @@ void demoMemAdvise() {
 
     // 取消建议
     printf("取消建议示例:\n");
-    CHECK_CUDA(cudaMemAdvise(readOnlyData, size,
+    CHECK_CUDA(MEM_ADVISE_DEVICE(readOnlyData, size,
         cudaMemAdviseUnsetReadMostly, device));
     printf("   -> 取消 readOnlyData 的只读标记\n\n");
 
@@ -364,9 +396,9 @@ void demoGPUInit() {
     printf("\n【GPU 初始化后 GPU 计算】\n");
 
     // 预取空数据到 GPU，确保分配在 GPU 上
-    CHECK_CUDA(cudaMemPrefetchAsync(a, size, device, 0));
-    CHECK_CUDA(cudaMemPrefetchAsync(b, size, device, 0));
-    CHECK_CUDA(cudaMemPrefetchAsync(c, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(a, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(b, size, device, 0));
+    CHECK_CUDA(PREFETCH_TO_DEVICE(c, size, device, 0));
 
     CHECK_CUDA(cudaEventRecord(start));
 
@@ -449,8 +481,8 @@ void demoUnifiedWithStreams() {
         int chunkBytes = CHUNK_SIZE * sizeof(float);
 
         // 预取该块到 GPU
-        CHECK_CUDA(cudaMemPrefetchAsync(&data[offset], chunkBytes,
-                                        device, streams[i]));
+        CHECK_CUDA(PREFETCH_TO_DEVICE(&data[offset], chunkBytes,
+                                      device, streams[i]));
 
         // 在该 stream 中处理
         scaleArray<<<gridSize, blockSize, 0, streams[i]>>>(
