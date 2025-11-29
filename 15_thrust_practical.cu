@@ -48,6 +48,33 @@
 }
 
 // ============================================================================
+// Thrust 函数对象（全局作用域，兼容 CUDA 13+）
+// ============================================================================
+
+// 平方函数对象
+struct SquareFloat {
+    __host__ __device__
+    float operator()(float x) const { return x * x; }
+};
+
+struct SquareInt {
+    __host__ __device__
+    int operator()(int x) const { return x * x; }
+};
+
+// 绝对值函数对象
+struct AbsFloat {
+    __host__ __device__
+    float operator()(float x) const { return fabsf(x); }
+};
+
+// 缩放加法函数对象
+struct ScaleAdd {
+    __host__ __device__
+    float operator()(float x) const { return x * 2.0f + 1.0f; }
+};
+
+// ============================================================================
 // 第一部分：Thrust 基础
 // ============================================================================
 
@@ -93,13 +120,8 @@ void demoThrustBasics() {
     for (int i = 0; i < 5; i++) printf("%.0f ", h_z[i]);
     printf("\n");
 
-    // 使用 lambda（C++11）或函数对象
-    struct square {
-        __host__ __device__
-        float operator()(float x) { return x * x; }
-    };
-
-    thrust::transform(d_x.begin(), d_x.end(), d_z.begin(), square());
+    // 使用函数对象（全局定义的 SquareFloat）
+    thrust::transform(d_x.begin(), d_x.end(), d_z.begin(), SquareFloat());
     h_z = d_z;
     printf("   x^2 = ");
     for (int i = 0; i < 5; i++) printf("%.0f ", h_z[i]);
@@ -138,16 +160,12 @@ void demoAdvancedIterators() {
     // 2. transform_iterator - 即时变换
     printf("2. transform_iterator:\n");
     {
-        struct square {
-            __host__ __device__
-            int operator()(int x) { return x * x; }
-        };
-
+        // 使用全局定义的 SquareInt
         // 计算 1^2 + 2^2 + ... + 10^2 而不分配额外内存
         auto begin = thrust::make_transform_iterator(
-            thrust::counting_iterator<int>(1), square());
+            thrust::counting_iterator<int>(1), SquareInt());
         auto end = thrust::make_transform_iterator(
-            thrust::counting_iterator<int>(11), square());
+            thrust::counting_iterator<int>(11), SquareInt());
 
         int sumSquares = thrust::reduce(begin, end);
         printf("   sum(1^2..10^2) = %d (期望: 385)\n\n", sumSquares);
@@ -424,14 +442,9 @@ void demoVectorNorm() {
     // L1 范数: sum(|x|)
     printf("1. L1 范数 (sum of absolute values):\n");
     {
-        struct abs_value {
-            __host__ __device__
-            float operator()(float x) { return fabsf(x); }
-        };
-
         float l1_norm = thrust::transform_reduce(
             d_vec.begin(), d_vec.end(),
-            abs_value(),
+            AbsFloat(),
             0.0f,
             thrust::plus<float>()
         );
@@ -441,14 +454,9 @@ void demoVectorNorm() {
     // L2 范数: sqrt(sum(x^2))
     printf("2. L2 范数 (Euclidean norm):\n");
     {
-        struct square {
-            __host__ __device__
-            float operator()(float x) { return x * x; }
-        };
-
         float sum_squares = thrust::transform_reduce(
             d_vec.begin(), d_vec.end(),
-            square(),
+            SquareFloat(),
             0.0f,
             thrust::plus<float>()
         );
@@ -459,14 +467,9 @@ void demoVectorNorm() {
     // L_inf 范数: max(|x|)
     printf("3. L_inf 范数 (maximum absolute value):\n");
     {
-        struct abs_value {
-            __host__ __device__
-            float operator()(float x) { return fabsf(x); }
-        };
-
         float linf_norm = thrust::transform_reduce(
             d_vec.begin(), d_vec.end(),
-            abs_value(),
+            AbsFloat(),
             0.0f,
             thrust::maximum<float>()
         );
@@ -604,14 +607,9 @@ void demoPerformance() {
     {
         thrust::device_vector<float> d_out(N);
 
-        struct scale_add {
-            __host__ __device__
-            float operator()(float x) { return x * 2.0f + 1.0f; }
-        };
-
         CHECK_CUDA(cudaEventRecord(start));
         for (int i = 0; i < 100; i++) {
-            thrust::transform(d_vec.begin(), d_vec.end(), d_out.begin(), scale_add());
+            thrust::transform(d_vec.begin(), d_vec.end(), d_out.begin(), ScaleAdd());
         }
         CHECK_CUDA(cudaEventRecord(stop));
         CHECK_CUDA(cudaEventSynchronize(stop));

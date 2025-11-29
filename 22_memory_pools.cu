@@ -21,7 +21,10 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>  // for UINT64_MAX
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
+#include <cuda.h>    // for CUDA Driver API (virtual memory)
 #include <vector>
 
 #define CHECK_CUDA(call) { \
@@ -231,7 +234,7 @@ void demoMemoryPoolConfig() {
     CHECK_CUDA(cudaMemPoolGetAttribute(pool,
         cudaMemPoolAttrUsedMemCurrent, &used));
     printf("   当前保留: %zu bytes\n", reserved);
-    printf("   当前使用: %zu bytes\n\n");
+    printf("   当前使用: %zu bytes\n\n", used);
 
     // 配置内存池
     printf("2. 配置内存池:\n");
@@ -455,15 +458,26 @@ void demoVirtualMemory() {
     printf("  - 按需映射物理内存\n");
     printf("  - 支持动态增长的数据结构\n\n");
 
-    // 获取分配粒度
+    // 初始化 CUDA Driver API
+    CUresult cuErr = cuInit(0);
+    if (cuErr != CUDA_SUCCESS) {
+        printf("警告: cuInit 失败，跳过虚拟内存演示\n\n");
+        return;
+    }
+
+    // 获取分配粒度（使用 Driver API）
     size_t granularity;
-    cudaMemAllocationProp allocProp = {};
-    allocProp.type = cudaMemAllocationTypePinned;
-    allocProp.location.type = cudaMemLocationTypeDevice;
+    CUmemAllocationProp allocProp = {};
+    allocProp.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+    allocProp.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
     allocProp.location.id = device;
 
-    CHECK_CUDA(cudaMemGetAllocationGranularity(&granularity, &allocProp,
-        cudaMemAllocationGranularityMinimum));
+    cuErr = cuMemGetAllocationGranularity(&granularity, &allocProp,
+        CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+    if (cuErr != CUDA_SUCCESS) {
+        printf("警告: cuMemGetAllocationGranularity 不支持，跳过虚拟内存演示\n\n");
+        return;
+    }
 
     printf("1. 分配粒度: %zu bytes (%.2f KB)\n\n", granularity, granularity / 1024.0f);
 
@@ -476,8 +490,12 @@ void demoVirtualMemory() {
     printf("   对齐大小: %zu MB\n\n", alignedSize / (1024 * 1024));
 
     // 预留虚拟地址空间
-    CUdeviceptr dptr;
-    CHECK_CUDA((cudaError_t)cuMemAddressReserve(&dptr, alignedSize, granularity, 0, 0));
+    CUdeviceptr dptr = 0;
+    cuErr = cuMemAddressReserve(&dptr, alignedSize, granularity, 0, 0);
+    if (cuErr != CUDA_SUCCESS) {
+        printf("警告: cuMemAddressReserve 失败，跳过虚拟内存演示\n\n");
+        return;
+    }
     printf("   预留地址: 0x%llx\n\n", (unsigned long long)dptr);
 
     // 创建物理内存句柄
@@ -489,12 +507,23 @@ void demoVirtualMemory() {
     cuAllocProp.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
     cuAllocProp.location.id = device;
 
-    CHECK_CUDA((cudaError_t)cuMemCreate(&allocHandle, alignedSize, &cuAllocProp, 0));
+    cuErr = cuMemCreate(&allocHandle, alignedSize, &cuAllocProp, 0);
+    if (cuErr != CUDA_SUCCESS) {
+        cuMemAddressFree(dptr, alignedSize);
+        printf("警告: cuMemCreate 失败，跳过虚拟内存演示\n\n");
+        return;
+    }
     printf("   创建 %zu MB 物理内存\n\n", alignedSize / (1024 * 1024));
 
     // 映射物理内存到虚拟地址
     printf("4. 映射内存:\n");
-    CHECK_CUDA((cudaError_t)cuMemMap(dptr, alignedSize, 0, allocHandle, 0));
+    cuErr = cuMemMap(dptr, alignedSize, 0, allocHandle, 0);
+    if (cuErr != CUDA_SUCCESS) {
+        cuMemRelease(allocHandle);
+        cuMemAddressFree(dptr, alignedSize);
+        printf("警告: cuMemMap 失败\n\n");
+        return;
+    }
     printf("   已映射到虚拟地址\n\n");
 
     // 设置访问权限
@@ -504,7 +533,14 @@ void demoVirtualMemory() {
     accessDesc.location.id = device;
     accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
 
-    CHECK_CUDA((cudaError_t)cuMemSetAccess(dptr, alignedSize, &accessDesc, 1));
+    cuErr = cuMemSetAccess(dptr, alignedSize, &accessDesc, 1);
+    if (cuErr != CUDA_SUCCESS) {
+        cuMemUnmap(dptr, alignedSize);
+        cuMemRelease(allocHandle);
+        cuMemAddressFree(dptr, alignedSize);
+        printf("警告: cuMemSetAccess 失败\n\n");
+        return;
+    }
     printf("   设置为读写权限\n\n");
 
     // 使用内存
@@ -523,11 +559,11 @@ void demoVirtualMemory() {
 
     // 清理
     printf("7. 清理:\n");
-    CHECK_CUDA((cudaError_t)cuMemUnmap(dptr, alignedSize));
+    cuMemUnmap(dptr, alignedSize);
     printf("   取消映射\n");
-    CHECK_CUDA((cudaError_t)cuMemRelease(allocHandle));
+    cuMemRelease(allocHandle);
     printf("   释放物理内存\n");
-    CHECK_CUDA((cudaError_t)cuMemAddressFree(dptr, alignedSize));
+    cuMemAddressFree(dptr, alignedSize);
     printf("   释放虚拟地址\n\n");
 }
 

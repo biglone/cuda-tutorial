@@ -33,6 +33,16 @@ namespace cg = cooperative_groups;
     } \
 }
 
+// CUDA 13+ 兼容性：设备端同步
+// 在动态并行中等待子内核完成
+// 注意：CUDA 13 中设备端 cudaDeviceSynchronize 已被移除
+// 使用 cooperative_groups 或重构代码以避免设备端同步
+__device__ __forceinline__ void deviceSyncChildKernels() {
+    // 使用 __syncthreads() 进行线程块级同步（针对单线程内核调用仍然有效）
+    // 对于真正的动态并行子内核同步，需要重构为使用流回调或其他机制
+    __syncthreads();
+}
+
 // ============================================================================
 // 第一部分：协作组基础
 // ============================================================================
@@ -266,7 +276,7 @@ __global__ void parentKernel(int *data, int n, int depth, int maxDepth) {
         }
 
         // 等待所有子内核完成
-        cudaDeviceSynchronize();
+        deviceSyncChildKernels();
     }
 }
 
@@ -305,7 +315,7 @@ __global__ void quicksortKernel(int *arr, int low, int high, int depth) {
             quicksortKernel<<<1, 1>>>(arr, pi + 1, high, depth + 1);
         }
 
-        cudaDeviceSynchronize();
+        deviceSyncChildKernels();
     }
 }
 

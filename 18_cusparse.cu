@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 #include <cusparse.h>
 #include <math.h>
 

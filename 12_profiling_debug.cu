@@ -18,6 +18,7 @@
 
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 #include <chrono>
 
 // ============================================================================
@@ -240,13 +241,15 @@ void demoPerformanceMetrics() {
     cudaDeviceProp prop;
     CHECK_CUDA(cudaGetDeviceProperties(&prop, 0));
 
-    // 理论峰值
-    float peakBandwidth = 2.0f * prop.memoryClockRate * (prop.memoryBusWidth / 8) / 1e6;  // GB/s
-    float peakFLOPS = prop.multiProcessorCount * prop.clockRate * 2.0f / 1e6;  // GFLOPS (简化)
+    // 理论峰值 - 使用版本兼容性宏自动处理 CUDA 12+ API 弃用问题
+    float peakBandwidth = GET_MEMORY_BANDWIDTH_GBPS(prop);
+    float peakFLOPS = GET_CLOCK_RATE_MHZ(prop) > 0
+        ? prop.multiProcessorCount * GET_CLOCK_RATE_MHZ(prop) * 2.0f / 1000.0f  // 从 MHz 转换
+        : prop.multiProcessorCount * 128.0f * 2.0f;  // CUDA 12+ 估算值（每 SM 128 核心）
 
     printf("设备理论峰值:\n");
-    printf("  内存带宽: %.1f GB/s\n", peakBandwidth);
-    printf("  计算能力: ~%.0f GFLOPS (估计)\n\n", peakFLOPS);
+    printf("  内存带宽: %.1f GB/s (估算)\n", peakBandwidth);
+    printf("  计算能力: ~%.0f GFLOPS (估算)\n\n", peakFLOPS);
 
     const int N = 1 << 24;  // 16M 元素
     float *d_a, *d_b, *d_c;

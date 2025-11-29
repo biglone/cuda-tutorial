@@ -97,28 +97,34 @@ __global__ void syncCopyKernel(float *output, const float *input, int n) {
     }
 }
 
-// 异步拷贝版本 (使用 cooperative_groups)
+// 异步拷贝版本 (使用 cuda::pipeline)
 __global__ void asyncCopyKernel(float *output, const float *input, int n) {
     __shared__ float smem[256];
 
-    auto block = cg::this_thread_block();
     int tid = threadIdx.x;
     int gid = blockIdx.x * blockDim.x + threadIdx.x;
 
+    // 创建 pipeline 用于异步拷贝
+    auto pipe = cuda::make_pipeline();
+
     // 异步拷贝: Global → Shared (绕过寄存器)
     if (gid < n) {
-        // 使用 memcpy_async 进行异步拷贝
-        cg::memcpy_async(block, smem, input + blockIdx.x * blockDim.x,
-                         sizeof(float) * blockDim.x);
+        // 使用 cuda::memcpy_async 进行异步拷贝
+        pipe.producer_acquire();
+        cuda::memcpy_async(&smem[tid], &input[gid], sizeof(float), pipe);
+        pipe.producer_commit();
     }
 
     // 等待异步拷贝完成
-    cg::wait(block);
+    pipe.consumer_wait();
+    __syncthreads();
 
     // 计算
     if (gid < n) {
         output[gid] = smem[tid] * 2.0f;
     }
+
+    pipe.consumer_release();
 }
 
 void demoBasicAsyncCopy() {

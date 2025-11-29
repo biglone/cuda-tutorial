@@ -156,8 +156,9 @@ else()
     message(STATUS "OpenGL/GLUT not found, skipping 21_interop_graphics")
 endif()
 
-# 22: 内存池 - 无额外依赖
+# 22: 内存池 - 需要 CUDA Driver API
 add_executable(22_memory_pools 22_memory_pools.cu)
+target_link_libraries(22_memory_pools PRIVATE CUDA::cuda_driver)
 
 # 23: 协作组高级 - 需要分离编译
 if(CUDADEVRT_LIBRARY)

@@ -6,23 +6,31 @@
  * 学习目标：
  * 1. 了解 WMMA (Warp Matrix Multiply-Accumulate) API
  * 2. 学会使用 Tensor Cores 加速矩阵运算
- * 3. 掌握混合精度计算 (FP16/FP32)
- * 4. 理解 Tensor Cores 的性能特点
+ * 3. 掌握多种精度计算 (FP16/TF32/FP8/INT8/INT4)
+ * 4. 理解不同架构 Tensor Cores 的演进和特性
+ * 5. 学习 Warp Group WMMA (Hopper+) 和现代优化技术
  *
  * 关键概念：
- * - Tensor Cores 架构
- * - WMMA fragment 类型
+ * - Tensor Cores 架构演进 (Volta → Turing → Ampere → Hopper → Blackwell)
+ * - WMMA fragment 类型和多种精度支持
  * - 矩阵布局 (row_major / col_major)
- * - 混合精度计算
+ * - 混合精度计算策略
+ * - Warp Group 协作 (Hopper+)
  *
  * 编译命令：
- *   nvcc -arch=sm_70 27_warp_matrix_tensor_cores.cu -o 27_warp_matrix_tensor_cores
+ *   Volta/Turing:  nvcc -arch=sm_70 27_warp_matrix_tensor_cores.cu -o 27_tensor
+ *   Ampere:        nvcc -arch=sm_80 27_warp_matrix_tensor_cores.cu -o 27_tensor
+ *   Hopper:        nvcc -arch=sm_90 27_warp_matrix_tensor_cores.cu -o 27_tensor
+ *   Blackwell:     nvcc -arch=sm_100 27_warp_matrix_tensor_cores.cu -o 27_tensor
+ *   Thor:          nvcc -arch=sm_110 27_warp_matrix_tensor_cores.cu -o 27_tensor
+ *   自动检测:      nvcc -arch=native 27_warp_matrix_tensor_cores.cu -o 27_tensor
  *
- * 注意：需要 Volta (sm_70) 或更新的 GPU 架构
+ * 注意：不同架构支持的特性不同，代码会根据运行时检测自动启用相应特性
  */
 
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 #include <cuda_fp16.h>
 #include <mma.h>
 
@@ -49,19 +57,30 @@ void demoTensorCoresOverview() {
     printf("  每个时钟周期可执行 4x4x4 矩阵运算\n\n");
 
     printf("Tensor Cores 演进:\n");
-    printf("  ┌────────────┬──────────────────────────────────────┐\n");
-    printf("  │ 架构       │ Tensor Core 能力                     │\n");
-    printf("  ├────────────┼──────────────────────────────────────┤\n");
-    printf("  │ Volta      │ FP16 → FP16/FP32                     │\n");
-    printf("  │ Turing     │ + INT8, INT4, INT1                   │\n");
-    printf("  │ Ampere     │ + TF32, BF16, FP64                   │\n");
-    printf("  │ Hopper     │ + FP8, 更大矩阵尺寸                  │\n");
-    printf("  └────────────┴──────────────────────────────────────┘\n\n");
+    printf("  ┌──────────────┬────────┬──────────────────────────────────────┐\n");
+    printf("  │ 架构         │ sm_XX  │ Tensor Core 能力                     │\n");
+    printf("  ├──────────────┼────────┼──────────────────────────────────────┤\n");
+    printf("  │ Volta (2017) │ sm_70  │ FP16 → FP16/FP32 (第1代)             │\n");
+    printf("  │ Turing (2018)│ sm_75  │ + INT8, INT4, INT1                   │\n");
+    printf("  │ Ampere (2020)│ sm_80  │ + TF32, BF16, FP64, 稀疏 (第2代)     │\n");
+    printf("  │ Hopper (2022)│ sm_90  │ + FP8, Warp Group, TMA (第3代)       │\n");
+    printf("  │ Blackwell    │ sm_100 │ 第4代, 性能大幅提升                  │\n");
+    printf("  │ Thor (2024)  │ sm_110 │ 第4代, 针对车载优化                  │\n");
+    printf("  └──────────────┴────────┴──────────────────────────────────────┘\n\n");
 
-    printf("WMMA 支持的矩阵尺寸 (M x N x K):\n");
-    printf("  FP16: 16x16x16, 32x8x16, 8x32x16\n");
-    printf("  INT8: 16x16x16, 32x8x16, 8x32x16\n");
-    printf("  TF32 (Ampere+): 16x16x8\n\n");
+    printf("WMMA 支持的精度和矩阵尺寸:\n");
+    printf("  ┌──────────────┬─────────────────┬──────────────────────┐\n");
+    printf("  │ 精度类型     │ 架构要求        │ 矩阵尺寸 (MxNxK)     │\n");
+    printf("  ├──────────────┼─────────────────┼──────────────────────┤\n");
+    printf("  │ FP16         │ Volta+ (sm_70)  │ 16x16x16, 32x8x16... │\n");
+    printf("  │ INT8         │ Turing+ (sm_75) │ 16x16x16, 32x8x16... │\n");
+    printf("  │ INT4         │ Turing+ (sm_75) │ 8x8x32               │\n");
+    printf("  │ TF32         │ Ampere+ (sm_80) │ 16x16x8              │\n");
+    printf("  │ BF16         │ Ampere+ (sm_80) │ 16x16x16             │\n");
+    printf("  │ FP64         │ Ampere+ (sm_80) │ 8x8x4                │\n");
+    printf("  │ FP8 (E4M3)   │ Hopper+ (sm_90) │ 16x16x16             │\n");
+    printf("  │ FP8 (E5M2)   │ Hopper+ (sm_90) │ 16x16x16             │\n");
+    printf("  └──────────────┴─────────────────┴──────────────────────┘\n\n");
 
     printf("编程模型:\n");
     printf("  ┌─────────────────────────────────────────────────────────┐\n");
@@ -714,6 +733,144 @@ void demoBestPractices() {
 }
 
 // ============================================================================
+// 第八部分：现代 Tensor Core 特性 (Ampere/Hopper/Blackwell)
+// ============================================================================
+
+void demoModernTensorCoreFeatures() {
+    printf("=== 第八部分：现代 Tensor Core 特性 ===\n\n");
+
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    int arch = prop.major * 10 + prop.minor;
+
+    printf("架构演进带来的新特性：\n\n");
+
+    // TF32 (Ampere+, sm_80)
+    if (arch >= 80) {
+        printf("✓ TF32 (TensorFloat-32) - Ampere 架构引入:\n");
+        printf("  • 格式: 1 符号位 + 8 指数位 + 10 尾数位 (19 位)\n");
+        printf("  • 优势: FP32 的动态范围 + 接近 FP16 的性能\n");
+        printf("  • 精度: ~3 位十进制精度 (vs FP32 的 7 位)\n");
+        printf("  • 性能: 比 FP32 快 8-10倍，比 FP16 慢 2倍\n");
+        printf("  • 应用: 深度学习训练/推理的理想平衡点\n");
+        printf("  • 使用: 自动启用或通过 cudaSetDeviceFlags() 控制\n\n");
+        printf("  TF32 vs FP16 vs FP32 对比:\n");
+        printf("  ┌────────┬─────┬────────┬────────┬──────────┐\n");
+        printf("  │ 类型   │ 位数│ 动态范围│ 精度  │ 相对性能 │\n");
+        printf("  ├────────┼─────┼────────┼────────┼──────────┤\n");
+        printf("  │ FP32   │  32 │ 1e±38  │ 高     │ 1x       │\n");
+        printf("  │ TF32   │  19 │ 1e±38  │ 中     │ 8-10x    │\n");
+        printf("  │ FP16   │  16 │ 65504  │ 中低   │ 16x      │\n");
+        printf("  │ BF16   │  16 │ 1e±38  │ 低     │ 16x      │\n");
+        printf("  └────────┴─────┴────────┴────────┴──────────┘\n\n");
+    } else {
+        printf("○ TF32: 需要 Ampere (sm_80) 或更高架构\n\n");
+    }
+
+    // FP8 (Hopper+, sm_90)
+    if (arch >= 90) {
+        printf("✓ FP8 (8位浮点) - Hopper 架构引入:\n");
+        printf("  两种格式:\n");
+        printf("  • E4M3: 1 符号 + 4 指数 + 3 尾数 (适合前向传播)\n");
+        printf("  • E5M2: 1 符号 + 5 指数 + 2 尾数 (适合反向传播)\n\n");
+        printf("  优势:\n");
+        printf("  • 极致的计算吞吐量 (比 FP16 快 2倍)\n");
+        printf("  • 减少内存带宽需求 (是 FP16 的一半)\n");
+        printf("  • 适合大规模模型推理\n\n");
+        printf("  典型应用:\n");
+        printf("  • Transformer 模型推理 (GPT, BERT等)\n");
+        printf("  • 大语言模型 (LLM) 量化\n");
+        printf("  • 混合精度训练\n\n");
+        printf("  注意: 需要仔细的量化策略以保持精度\n\n");
+    } else {
+        printf("○ FP8: 需要 Hopper (sm_90) 或更高架构\n\n");
+    }
+
+    // INT8/INT4 (Turing+, sm_75)
+    if (arch >= 75) {
+        printf("✓ INT8/INT4 整数 Tensor Cores - Turing 架构引入:\n");
+        printf("  INT8:\n");
+        printf("  • 矩阵尺寸: 16x16x16, 32x8x16, 8x32x16\n");
+        printf("  • 典型应用: 量化后的 CNN 推理\n");
+        printf("  • 性能: 比 FP16 快约 2倍\n\n");
+        printf("  INT4:\n");
+        printf("  • 矩阵尺寸: 8x8x32\n");
+        printf("  • 应用: 极致量化推理\n");
+        printf("  • 注意: 需要非常仔细的量化校准\n\n");
+    } else {
+        printf("○ INT8/INT4: 需要 Turing (sm_75) 或更高架构\n\n");
+    }
+
+    // Warp Group (Hopper+, sm_90)
+    if (arch >= 90) {
+        printf("✓ Warp Group WMMA - Hopper 架构引入:\n");
+        printf("  • 概念: 多个 warp (最多 8个) 协作完成更大的矩阵运算\n");
+        printf("  • 优势: 更好的指令级并行和数据重用\n");
+        printf("  • API: cuda::device::cluster 命名空间\n");
+        printf("  • 配合: Thread Block Clusters 使用\n\n");
+        printf("  示例矩阵尺寸:\n");
+        printf("  • 单 warp:  16x16x16\n");
+        printf("  • 2-warp:   32x16x16 或 16x32x16\n");
+        printf("  • 4-warp:   32x32x16\n");
+        printf("  • 8-warp:   64x32x16 或 32x64x16\n\n");
+    } else {
+        printf("○ Warp Group WMMA: 需要 Hopper (sm_90) 或更高架构\n\n");
+    }
+
+    // Sparse Tensor Cores (Ampere+, sm_80)
+    if (arch >= 80) {
+        printf("✓ 稀疏 Tensor Cores - Ampere 架构引入:\n");
+        printf("  • 支持: 2:4 结构化稀疏 (每 4 个元素中 2 个非零)\n");
+        printf("  • 性能: 理论上比密集计算快 2倍\n");
+        printf("  • 应用: 剪枝后的神经网络\n");
+        printf("  • 要求: 权重必须满足 2:4 稀疏模式\n");
+        printf("  • API: cuSPARSELt 库\n\n");
+    } else {
+        printf("○ 稀疏 Tensor Cores: 需要 Ampere (sm_80) 或更高架构\n\n");
+    }
+
+    // Blackwell/Thor (sm_100+, sm_110)
+    if (arch >= 100) {
+        printf("✓ 第四代 Tensor Cores - Blackwell/Thor 架构:\n");
+        printf("  • 性能: 比 Hopper 大幅提升 (2-3倍)\n");
+        printf("  • 精度支持: 所有精度 (FP64/FP32/TF32/BF16/FP16/FP8/INT8/INT4)\n");
+        printf("  • 新特性: 改进的 Warp Group 性能\n");
+        printf("  • 优化: 更低的延迟，更高的吞吐量\n\n");
+        if (arch >= 110) {
+            printf("  Thor 特点 (sm_110):\n");
+            printf("  • 针对车载/边缘计算优化\n");
+            printf("  • 更好的能效比\n");
+            printf("  • 与自动驾驶栈深度集成\n\n");
+        }
+    }
+
+    printf("现代精度选择指南:\n");
+    printf("┌────────────────────┬──────────┬─────────────────┐\n");
+    printf("│ 应用场景           │ 推荐精度 │ 架构要求        │\n");
+    printf("├────────────────────┼──────────┼─────────────────┤\n");
+    printf("│ LLM 训练 (大模型)  │ FP8/BF16 │ Hopper+ (sm_90) │\n");
+    printf("│ LLM 推理           │ FP8/INT8 │ Hopper+ (sm_90) │\n");
+    printf("│ CV 训练 (ResNet等) │ TF32/BF16│ Ampere+ (sm_80) │\n");
+    printf("│ CV 推理 (实时)     │ INT8/FP16│ Turing+ (sm_75) │\n");
+    printf("│ 科学计算           │ FP64/TF32│ Ampere+ (sm_80) │\n");
+    printf("│ 边缘设备推理       │ INT4/INT8│ Turing+ (sm_75) │\n");
+    printf("└────────────────────┴──────────┴─────────────────┘\n\n");
+
+    printf("性能提升参考 (相对于 FP32 CUDA Cores):\n");
+    printf("  FP16 Tensor Cores:  ~16x   (Volta+)\n");
+    printf("  TF32 Tensor Cores:  ~8-10x (Ampere+)\n");
+    printf("  FP8 Tensor Cores:   ~32x   (Hopper+)\n");
+    printf("  INT8 Tensor Cores:  ~32x   (Turing+)\n");
+    printf("  INT4 Tensor Cores:  ~64x   (Turing+)\n\n");
+
+    printf("注意事项:\n");
+    printf("  • 低精度需要仔细的量化策略\n");
+    printf("  • 混合精度可以平衡精度和性能\n");
+    printf("  • 使用 cuBLAS/cuDNN 可自动选择最优精度\n");
+    printf("  • Nsight Compute 可分析 Tensor Core 利用率\n\n");
+}
+
+// ============================================================================
 // 主函数
 // ============================================================================
 
@@ -725,16 +882,45 @@ int main() {
     cudaDeviceProp prop;
     CHECK_CUDA(cudaGetDeviceProperties(&prop, 0));
     printf("设备: %s\n", prop.name);
-    printf("计算能力: %d.%d\n", prop.major, prop.minor);
+    printf("计算能力: %d.%d (sm_%d%d)\n", prop.major, prop.minor,
+           prop.major * 10 + prop.minor / 10, prop.minor % 10);
 
-    // 检查 Tensor Core 支持
+    // 详细的架构检测和 Tensor Core 能力
     bool hasTensorCores = prop.major >= 7;
-    printf("Tensor Cores: %s\n\n", hasTensorCores ? "支持" : "不支持");
-
-    if (!hasTensorCores) {
-        printf("警告: 此设备不支持 Tensor Cores (需要 sm_70 或更高)\n");
-        printf("部分示例将无法正确运行\n\n");
+    printf("\n架构特性:\n");
+    if (prop.major >= 11) {
+        printf("  ✓ Thor/Blackwell 架构 (sm_110+)\n");
+        printf("  ✓ 第四代 Tensor Cores\n");
+        printf("  ✓ 支持所有精度: FP64/FP32/TF32/BF16/FP16/FP8/INT8/INT4\n");
+        printf("  ✓ Warp Group WMMA\n");
+        printf("  ✓ TMA (Tensor Memory Accelerator)\n");
+    } else if (prop.major >= 10) {
+        printf("  ✓ Blackwell 架构 (sm_100+)\n");
+        printf("  ✓ 第四代 Tensor Cores\n");
+        printf("  ✓ 支持所有精度: FP64/FP32/TF32/BF16/FP16/FP8/INT8/INT4\n");
+    } else if (prop.major >= 9) {
+        printf("  ✓ Hopper 架构 (sm_90+)\n");
+        printf("  ✓ 第三代 Tensor Cores\n");
+        printf("  ✓ 支持精度: FP64/FP32/TF32/BF16/FP16/FP8/INT8/INT4\n");
+        printf("  ✓ Warp Group WMMA, Thread Block Clusters\n");
+    } else if (prop.major >= 8) {
+        printf("  ✓ Ampere 架构 (sm_80+)\n");
+        printf("  ✓ 第二代 Tensor Cores\n");
+        printf("  ✓ 支持精度: FP64/FP32/TF32/BF16/FP16/INT8/INT4\n");
+        printf("  ✓ 稀疏 Tensor Cores (2:4 结构化稀疏)\n");
+    } else if (prop.major == 7 && prop.minor >= 5) {
+        printf("  ✓ Turing 架构 (sm_75)\n");
+        printf("  ✓ 第一代 Tensor Cores + INT 支持\n");
+        printf("  ✓ 支持精度: FP32/FP16/INT8/INT4/INT1\n");
+    } else if (prop.major >= 7) {
+        printf("  ✓ Volta 架构 (sm_70)\n");
+        printf("  ✓ 第一代 Tensor Cores\n");
+        printf("  ✓ 支持精度: FP32/FP16\n");
+    } else {
+        printf("  ✗ 不支持 Tensor Cores (需要 Volta/sm_70 或更高)\n");
+        printf("  部分示例将无法正确运行\n");
     }
+    printf("\n");
 
     demoTensorCoresOverview();
 
@@ -749,15 +935,19 @@ int main() {
     demoMixedPrecision();
     demoApplications();
     demoBestPractices();
+    demoModernTensorCoreFeatures();
 
     printf("╔════════════════════════════════════════════════════════════════╗\n");
     printf("║                       学习要点总结                              ║\n");
     printf("╚════════════════════════════════════════════════════════════════╝\n\n");
 
     printf("1. Tensor Cores 基础:\n");
-    printf("   - 专用矩阵乘法硬件\n");
-    printf("   - 支持多种精度 (FP16, INT8, TF32, BF16)\n");
-    printf("   - 比 CUDA Cores 快数倍\n\n");
+    printf("   - 专用矩阵乘法硬件，代代演进\n");
+    printf("   - 第1代 (Volta): FP16\n");
+    printf("   - 第2代 (Ampere): TF32, BF16, FP64, 稀疏\n");
+    printf("   - 第3代 (Hopper): FP8, Warp Group\n");
+    printf("   - 第4代 (Blackwell/Thor): 全精度支持，极致性能\n");
+    printf("   - 性能: 比 CUDA Cores 快 8-64倍 (取决于精度)\n\n");
 
     printf("2. WMMA API:\n");
     printf("   - fragment: 矩阵片段类型\n");

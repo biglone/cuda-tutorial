@@ -27,6 +27,7 @@
 #include <string.h>
 #include <math.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 
 #define CHECK_CUDA(call) { \
     cudaError_t err = call; \
@@ -54,12 +55,8 @@ void demoJetsonOverview() {
     printf("  全局内存: %.2f GB\n", prop.totalGlobalMem / (1024.0 * 1024.0 * 1024.0));
     printf("  共享内存/块: %zu KB\n", prop.sharedMemPerBlock / 1024);
     printf("  最大线程/块: %d\n", prop.maxThreadsPerBlock);
-    // 注意: memoryClockRate 在 CUDA 12+ 已弃用，使用条件编译兼容不同版本
-#if CUDART_VERSION < 12000
-    printf("  内存带宽: %.1f GB/s (理论值)\n\n", 2.0 * prop.memoryClockRate * (prop.memoryBusWidth / 8) / 1e6);
-#else
-    printf("  内存总线宽度: %d bits\n\n", prop.memoryBusWidth);
-#endif
+    // 使用版本兼容性宏自动处理 CUDA 12+ memoryClockRate 弃用问题
+    printf("  内存带宽: %.1f GB/s (估算)\n\n", GET_MEMORY_BANDWIDTH_GBPS(prop));
 
     printf("NVIDIA Jetson 产品线:\n");
     printf("  ┌───────────────┬─────────────┬──────────┬────────────┐\n");

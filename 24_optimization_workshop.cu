@@ -338,9 +338,14 @@ void runTransposeBenchmark() {
     // 理论带宽
     cudaDeviceProp prop;
     CHECK_CUDA(cudaGetDeviceProperties(&prop, 0));
+    // 注意: memoryClockRate 在 CUDA 12+ 已弃用
+#if CUDART_VERSION < 12000
     float theoreticalBandwidth = prop.memoryClockRate * 1e3 *
                                   (prop.memoryBusWidth / 8) * 2 / 1e9;
     printf("理论峰值带宽: %.2f GB/s\n\n", theoreticalBandwidth);
+#else
+    printf("内存总线宽度: %d bits\n\n", prop.memoryBusWidth);
+#endif
 
     // 清理
     CHECK_CUDA(cudaEventDestroy(start));
@@ -801,8 +806,13 @@ int main() {
     printf("计算能力: %d.%d\n", prop.major, prop.minor);
     printf("SM 数量: %d\n", prop.multiProcessorCount);
     printf("显存大小: %.2f GB\n", prop.totalGlobalMem / (1024.0f * 1024.0f * 1024.0f));
+    // 注意: memoryClockRate 在 CUDA 12+ 已弃用
+#if CUDART_VERSION < 12000
     printf("显存带宽: %.2f GB/s (理论)\n\n",
            prop.memoryClockRate * 1e3 * (prop.memoryBusWidth / 8) * 2 / 1e9);
+#else
+    printf("内存总线宽度: %d bits\n\n", prop.memoryBusWidth);
+#endif
 
     demoOptimizationOverview();
     runTransposeBenchmark();

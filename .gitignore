@@ -54,6 +54,7 @@ vector_add
 
 # CMake 构建目录
 build/
+build_test/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
@@ -74,6 +75,9 @@ Makefile
 *.swo
 *~
 .DS_Store
+
+# 文档和参考资料
+docs/
 
 # 调试文件
 core

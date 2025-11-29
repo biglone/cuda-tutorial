@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 #include <cublas_v2.h>
 #include <math.h>
 
@@ -542,7 +543,8 @@ int main() {
     printf("设备: %s\n", prop.name);
     printf("计算能力: %d.%d\n", prop.major, prop.minor);
     printf("共享内存 (每块): %zu KB\n", prop.sharedMemPerBlock / 1024);
-    printf("内存带宽: %.0f GB/s\n\n", 2.0 * prop.memoryClockRate * (prop.memoryBusWidth / 8) / 1e6);
+    // 使用版本兼容性宏自动处理 CUDA 12+ memoryClockRate 弃用问题
+    printf("内存带宽: %.0f GB/s (估算)\n\n", GET_MEMORY_BANDWIDTH_GBPS(prop));
 
     // 测试不同矩阵大小
     runBenchmark(1024, 1024, 1024);

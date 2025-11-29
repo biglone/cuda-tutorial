@@ -17,6 +17,7 @@
 
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 #include <vector>
 
 #define CHECK_CUDA(call) { \
@@ -48,8 +49,8 @@ void demoDeviceManagement() {
         printf("  计算能力: %d.%d\n", prop.major, prop.minor);
         printf("  全局内存: %.2f GB\n", prop.totalGlobalMem / (1024.0 * 1024 * 1024));
         printf("  SM 数量: %d\n", prop.multiProcessorCount);
-        printf("  内存带宽: %.0f GB/s\n",
-               2.0 * prop.memoryClockRate * (prop.memoryBusWidth / 8) / 1e6);
+        // 使用版本兼容性宏自动处理 CUDA 12+ memoryClockRate 弃用问题
+        printf("  内存带宽: %.0f GB/s (估算)\n", GET_MEMORY_BANDWIDTH_GBPS(prop));
 
         // 检查统一虚拟地址支持
         printf("  统一虚拟寻址(UVA): %s\n", prop.unifiedAddressing ? "是" : "否");

@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include "cuda_version_compat.h"
 #include <vector>
 
 #define CHECK_CUDA(call) { \
@@ -30,6 +31,16 @@
         exit(1); \
     } \
 }
+
+// CUDA 13+ 兼容性：cudaGraphGetEdges API 变化
+// CUDA 13 添加了 edgeData 参数
+#if CUDART_VERSION >= 13000
+#define GRAPH_GET_EDGES(graph, from, to, numEdges) \
+    cudaGraphGetEdges(graph, from, to, NULL, numEdges)
+#else
+#define GRAPH_GET_EDGES(graph, from, to, numEdges) \
+    cudaGraphGetEdges(graph, from, to, numEdges)
+#endif
 
 // ============================================================================
 // 简单的内核函数
@@ -302,7 +313,7 @@ void demoExplicitAPI() {
     // 获取图信息
     size_t numNodes, numEdges;
     CHECK_CUDA(cudaGraphGetNodes(graph, NULL, &numNodes));
-    CHECK_CUDA(cudaGraphGetEdges(graph, NULL, NULL, &numEdges));
+    CHECK_CUDA(GRAPH_GET_EDGES(graph, NULL, NULL, &numEdges));
     printf("\n2. 图结构:\n");
     printf("   节点数: %zu\n", numNodes);
     printf("   边数: %zu\n", numEdges);
