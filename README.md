@@ -46,6 +46,16 @@ make frontier        # 前沿应用篇 (31-35)
 make all_tutorials   # 全部教程
 ```
 
+### 方式三：全量编译测试
+
+```bash
+# 使用测试脚本编译所有 35 个教程
+./compile_all.sh
+
+# 查看编译统计和错误信息
+# 成功的二进制文件在 build_test/ 目录
+```
+
 ## 环境要求
 
 - NVIDIA GPU（计算能力 3.0+）
@@ -154,11 +164,20 @@ nvcc -lcurand 33_scientific_computing.cu -o 33_scientific
 
 ## 配套文档
 
+### 学习文档
 - [CUDA 学习指南](CUDA学习指南.md) - 基础概念详解
+- [CUDA 架构与原理](CUDA架构与原理.md) - GPU 硬件架构与 CUDA 执行模型深入解析
+- [性能优化原理](性能优化原理.md) - 内存访问、指令级优化等性能优化理论
+
+### 参考文档
 - [快速参考卡](快速参考.md) - 常用 API 速查
+- [版本兼容性指南](VERSION_COMPAT_GUIDE.md) - CUDA 版本兼容性详解
+- [版本兼容性速查](QUICK_REFERENCE.md) - 兼容性快速参考
+- [常见问题 FAQ](FAQ.md) - 常见问题解答
+
+### 练习题集
 - [练习题集](练习题集.md) - 基础练习
 - [进阶练习题集](进阶练习题集.md) - 高级练习
-- [常见问题 FAQ](FAQ.md) - 常见问题解答
 
 ## 学习建议
 
