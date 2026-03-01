@@ -82,3 +82,8 @@ docs/
 # 调试文件
 core
 core.*
+# OpenClaw AutoDev
+.autodev.verify.json
+.autodev/
+WORKFLOW_AUTO.md
+memory/
